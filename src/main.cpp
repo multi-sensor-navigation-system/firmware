@@ -20,6 +20,10 @@ HardwareSerial      gpsSerial(GPS_UART_NUM);
 
 RingBuffer          ring = {};         // zero-init
 
+bool has_mpu = false;
+bool has_qmc = false;
+bool has_bmp = false;
+
 // Last known good GPS state — written and read exclusively by task_sensors
 // (Core 1). task_serial (Core 0) never touches these globals directly;
 // it only reads rows already in the ring buffer.
@@ -99,6 +103,7 @@ bool init_sensors() {
         Serial.println("# MPU-6050 not found");
         ok = false;
     } else {
+        has_mpu = true;
         mpu.setAccelerometerRange(MPU6050_RANGE_4_G);
         mpu.setGyroRange(MPU6050_RANGE_500_DEG);
         mpu.setFilterBandwidth(MPU6050_BAND_44_HZ);
@@ -113,6 +118,7 @@ bool init_sensors() {
         Serial.println("# QMC5883L not found (tried 0x0D)");
         ok = false;
     } else {
+        has_qmc = true;
         mag.init();
         mag.setMode(0x01, 0x0C, 0x10, 0x00); // continuous, 200Hz, 8G, 512 OSR
         Serial.println("# QMC5883L OK");
@@ -123,6 +129,7 @@ bool init_sensors() {
         Serial.println("# BMP280 not found (tried 0x76)");
         ok = false;
     } else {
+        has_bmp = true;
         // STANDBY_MS_63 → BMP280 internal cycle ≈ 63ms → ~15.8Hz updates.
         // STANDBY_MS_500 gives only 2Hz updates despite firmware polling at 25Hz.
         // SAMPLING_X4 on temperature provides better noise rejection w/o slowing cycle (unlike X2).
@@ -166,7 +173,7 @@ void task_sensors(void* pv) {
         if (now < next_imu_us) {
            // Yield if far from deadline; spin for last period for timing precision
             int64_t remaining = (int64_t)(next_imu_us - now);
-            if (remaining > IMU_PERIOD_US) vTaskDelay(1);
+            if (remaining > 1000) vTaskDelay(1);
             continue;
         }
 
@@ -193,16 +200,20 @@ void task_sensors(void* pv) {
         // rate to 2600 Hz by consuming the deadline budget).
         // Polling at 500 Hz against a 1 kHz internal rate — every other poll
         // may return the same sample. Jitter can also cause occasional skips.
-        sensors_event_t a, g, temp_ev;
-        if (mpu.getEvent(&a, &g, &temp_ev)) {
-            last_ax = a.acceleration.x / 9.80665f;  // m/s² → g
-            last_ay = a.acceleration.y / 9.80665f;
-            last_az = a.acceleration.z / 9.80665f;
-            last_gx = g.gyro.x * (180.0f / M_PI);   // rad/s → °/s
-            last_gy = g.gyro.y * (180.0f / M_PI);
-            last_gz = g.gyro.z * (180.0f / M_PI);
+        if (has_mpu) {
+            sensors_event_t a, g, temp_ev;
+            if (mpu.getEvent(&a, &g, &temp_ev)) {
+                last_ax = a.acceleration.x / 9.80665f;  // m/s² → g
+                last_ay = a.acceleration.y / 9.80665f;
+                last_az = a.acceleration.z / 9.80665f;
+                last_gx = g.gyro.x * (180.0f / M_PI);   // rad/s → °/s
+                last_gy = g.gyro.y * (180.0f / M_PI);
+                last_gz = g.gyro.z * (180.0f / M_PI);
+            } else {
+                row.fault_flag |= FAULT_IMU;             // stale values carried forward below
+            }
         } else {
-            row.fault_flag |= FAULT_IMU;             // stale values carried forward below
+            row.fault_flag |= FAULT_IMU;
         }
         row.ax = last_ax;
         row.ay = last_ay;
@@ -213,11 +224,15 @@ void task_sensors(void* pv) {
 
         // ── BARO (25 Hz) ────────────────────────────────
         if (esp_timer_get_time() >= next_baro_us) {
-            float p = bmp.readPressure();
-            float t = bmp.readTemperature();
-            if (!isnan(p) && p > 80000.0f) {          // sanity: 800–1100 hPa
-                last_pressure = p / 100.0f;            // Pa → hPa
-                last_bmp_temp = t;
+            if (has_bmp) {
+                float p = bmp.readPressure();
+                float t = bmp.readTemperature();
+                if (!isnan(p) && p > 80000.0f) {          // sanity: 800–1100 hPa
+                    last_pressure = p / 100.0f;            // Pa → hPa
+                    last_bmp_temp = t;
+                } else {
+                    row.fault_flag |= FAULT_BARO;
+                }
             } else {
                 row.fault_flag |= FAULT_BARO;
             }
@@ -229,18 +244,22 @@ void task_sensors(void* pv) {
 
         // ── MAGNETOMETER / QMC5883L (75 Hz) ────────────
         if (esp_timer_get_time() >= next_mag_us) {
-            mag.read();
-            int mx_raw = mag.getX();
-            int my_raw = mag.getY();
-            int mz_raw = mag.getZ();
-            // QMC5883L at 8G range: 3000 LSB/Gauss, 1 Gauss = 100 μT
-            // → scale = 100.0 / 3000.0 = 0.03333 μT/LSB
-            const float LSB_TO_UT = 100.0f / 3000.0f;
-            last_mx = mx_raw * LSB_TO_UT;
-            last_my = my_raw * LSB_TO_UT;
-            last_mz = mz_raw * LSB_TO_UT;
-            // QMC has no explicit error return; zeros on I²C fault
-            if (mx_raw == 0 && my_raw == 0 && mz_raw == 0) {
+            if (has_qmc) {
+                mag.read();
+                int mx_raw = mag.getX();
+                int my_raw = mag.getY();
+                int mz_raw = mag.getZ();
+                // QMC5883L at 8G range: 3000 LSB/Gauss, 1 Gauss = 100 μT
+                // → scale = 100.0 / 3000.0 = 0.03333 μT/LSB
+                const float LSB_TO_UT = 100.0f / 3000.0f;
+                last_mx = mx_raw * LSB_TO_UT;
+                last_my = my_raw * LSB_TO_UT;
+                last_mz = mz_raw * LSB_TO_UT;
+                // QMC has no explicit error return; zeros on I²C fault
+                if (mx_raw == 0 && my_raw == 0 && mz_raw == 0) {
+                    row.fault_flag |= FAULT_MAG;
+                }
+            } else {
                 row.fault_flag |= FAULT_MAG;
             }
             next_mag_us += MAG_PERIOD_US;
