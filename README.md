@@ -9,6 +9,8 @@
 > **Repo 1 of 4** · 500 Hz deterministic multi-sensor data acquisition firmware for real-time navigation systems.
 > 
 > Streams fused IMU · magnetometer · barometer · GPS telemetry as timestamped CSV over UART at 921600 baud.
+>
+> ⚠️ *This repository was named `navigation-system-firmware` before moving under the `multi-sensor-navigation-system` organization from [@ShivtejG236](https://github.com/ShivtejG236).*
 
 ---
 
@@ -54,7 +56,7 @@ graph TD
         POP --> CSV
     end
 
-    CSV --> HOST["Host logger\n(repo 2)"]
+    CSV --> HOST["Host logger\n(Repo 2)"]
 ```
 
 **Model:** `task_sensors` = producer · `task_serial` = consumer
@@ -88,7 +90,7 @@ All three I²C devices share the same bus at 400 kHz fast-mode.
 
 ---
 
-## Sample rates
+## Sample Rates
 
 | Sensor | Rate | Period |
 |---|---|---|
@@ -101,13 +103,13 @@ Lower-rate sensors are polled sub-sampled within the 500 Hz IMU loop — no sepa
 
 ---
 
-## CSV format & fault flags
+## CSV Format & Fault Flags
 
 The firmware prints a single header line on boot, then one row per IMU tick:
 
 
 <details>
-<summary><b>Field groups</b></summary>
+<summary><b>Field Groups</b></summary>
     Fields are grouped (only here) by sensor domain for clarity:
     <table>
         <tr>
@@ -142,7 +144,7 @@ The firmware prints a single header line on boot, then one row per IMU tick:
 </details>
 
 <details>
-    <summary><b>Field reference</b></summary>
+    <summary><b>Field Reference</b></summary>
     <table>
         <tr>
             <th>Field</th>
@@ -228,7 +230,7 @@ The firmware prints a single header line on boot, then one row per IMU tick:
 </details>
 
 <details>
-    <summary><b>Fault flag bitmask</b></summary>
+    <summary><b>Fault Flag Bitmask</b></summary>
     <table>
         <tr>
             <td>bit 0</td>
@@ -262,13 +264,13 @@ Fault flags describe the **current sample only** — they are not latched system
 
 ---
 
-## Stale-value policy
+## Stale-Value Policy
 
 When a lower-rate sensor misses its sub-deadline within a 500 Hz tick, the **last known-good value is carried forward** into that row's fields. The corresponding fault-flag bit is set so downstream consumers can distinguish fresh from stale. This guarantees consumers always see a valid reading rather than zeros.
 
 ---
 
-## Ring buffer
+## Ring Buffer
 
 A **128-slot lock-free SPSC ring buffer** (`RING_SIZE` must be a power of 2) decouples the sensor task from the serial task. `rb_push` / `rb_pop` use `__sync_synchronize()` memory barriers to prevent store/load reordering across the two cores — no mutex, no FreeRTOS synchronisation primitive. If the ring fills (serial output can't keep up), the producer drops the row and increments `rb_drops`. Drops are reported on `Serial` once per second:
 
@@ -280,7 +282,7 @@ Designed for SPSC (single producer, single consumer); not safe for multi-writer 
 
 ---
 
-## Repo-01 structure
+## Repo-01 Structure
 
 ```
 firmware/
@@ -311,7 +313,7 @@ Managed by PlatformIO — no manual installation needed.
 
 ---
 
-## Build & flash
+## Build & Flash
 
 ```bash
 # Build
@@ -335,7 +337,7 @@ If a sensor is absent, firmware continues logging available sensors and annotate
 
 ---
 
-## Implementation notes
+## Implementation Notes
 
 **Why the WDT is unregistered for idle tasks:** `task_sensors` busy-waits at 500 Hz on Core 1, which starves the idle task. Without `esp_task_wdt_delete()` on both idle tasks (and on `loopTask`), the TWDT fires every ~5 s and hard-resets the chip. `sdkconfig.defaults` disables the idle-task TWDT at the SDK level; the runtime calls are an explicit belt-and-suspenders.
 
@@ -345,12 +347,12 @@ If a sensor is absent, firmware continues logging available sensors and annotate
 
 ---
 
-## Project ecosystem
+## Project Ecosystem
 
 ```mermaid
 graph LR
     FW["🔧 firmware\nESP32 sensor acquisition\nCSV @ 921600 baud"]
-    PL["📡 pipeline\nHost logger · serial → CSV\ncleaning & calibration"]
+    PL["📡 data-pipeline\nHost logger · serial → CSV\ncleaning & calibration"]
     AN["📊 analysis\nEKF · Allan variance\nvisualisation · reports"]
     EH["🧭 edgehard\nDead reckoning\nGPS dropout modelling"]
 
@@ -362,10 +364,10 @@ graph LR
 
 | Repo | Role | Status |
 |---|---|---|
-| **`navigation-system-firmware`** ← *(this repo)* | ESP32 firmware — sensor acquisition & CSV streaming | ✅ Active |
-| [`navigation-system-pipeline`](#) | Host-side logger & calibration — reads serial, writes timestamped CSV | 🚧 In progress |
-| [`navigation-system-analysis`](#) | Offline processing — EKF, Allan variance, map visualisation, reports | 🚧 In progress |
-| [`navigation-system-edgehard`](#) | Dead reckoning — GPS dropout modelling, edge inference | 🔜 Planned |
+| **`firmware`** ← *(this repo, formerly navigation-system-firmware)* | ESP32 firmware — sensor acquisition & CSV streaming | ✅ Active |
+| [`data-pipeline`](https://github.com/multi-sensor-navigation-system/data-pipeline) | Host-side logger & calibration — reads serial, writes timestamped CSV | 	✅ Active |
+| [`analysis`](#) | Offline processing — EKF, Allan variance, map visualisation, reports | 🚧 In progress |
+| [`edgehard`](#) | Dead reckoning — GPS dropout modelling, edge inference | 🔜 Planned |
 
 ## Why this exists
 
