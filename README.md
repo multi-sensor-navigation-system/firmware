@@ -311,7 +311,8 @@ firmware/
 ├── tools/
 │   ├── host/             # Host-side protocol tests + golden stream generator
 │   ├── check_boards.py   # CI check: manifests ↔ PlatformIO environments
-│   └── release.py        # Merges release images and writes manifest.json
+│   └── release.py        # Merges release images, writes manifest.json, builds the web flasher
+├── web/index.html        # Web flasher page (ESP Web Tools)
 ├── platformio.ini        # PlatformIO build config
 ├── sdkconfig.defaults    # ESP-IDF SDK overrides (task WDT tuning)
 └── docs/
@@ -338,12 +339,22 @@ Managed by PlatformIO — no manual installation needed.
 
 ## Build & Flash
 
+### Without a toolchain
+
+| Route | How |
+|---|---|
+| Terminal | `nav flash` from [Repo 2](https://github.com/multi-sensor-navigation-system/data-pipeline): detects the board, downloads the matching release image, verifies its SHA-256, flashes it |
+| Browser | The web flasher published with each release (Chrome or Edge on a desktop): pick the board, press Flash |
+| By hand | Download `msns-firmware-<board>-<tag>.bin` from Releases, then `esptool --chip esp32 write-flash 0x0 <file>` |
+
+### From source
+
 ```bash
 # Build and flash the default (binary) firmware
 pio run -e esp32dev --target upload
 ```
 
-Replace `esp32dev` with another board id from [`docs/boards.md`](docs/boards.md) to build for it. Released images can be flashed without PlatformIO: `nav flash` from [Repo 2](https://github.com/multi-sensor-navigation-system/data-pipeline) detects the board and downloads the right one.
+Replace `esp32dev` with another board id from [`docs/boards.md`](docs/boards.md) to build for it.
 
 The binary stream is not readable in a serial monitor; log it with the host logger from [Repo 2](https://github.com/multi-sensor-navigation-system/data-pipeline), which prints the firmware's messages and writes the CSV.
 

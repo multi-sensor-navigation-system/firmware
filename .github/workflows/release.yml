@@ -5,6 +5,7 @@ name: Release
 # MSNS_FW_VERSION in include/version.h.
 #
 # Flash with navkit:   nav flash
+# From a browser:      the web flasher on GitHub Pages (see below)
 # Or by hand:          esptool --chip esp32 write-flash 0x0 msns-firmware-esp32dev-v0.2.0.bin
 
 on:
@@ -25,8 +26,27 @@ jobs:
       - run: pip install platformio "esptool>=5"
       - run: python3 tools/check_boards.py
       - run: pio run
-      - run: python tools/release.py --tag "$GITHUB_REF_NAME" --out dist
+      - run: python tools/release.py --tag "$GITHUB_REF_NAME" --out dist --site site
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/
+
+  # Web flasher. Enable once: repository Settings → Pages → Source "GitHub
+  # Actions", then set the repository variable PAGES_DEPLOY=true.
+  pages:
+    needs: release
+    if: vars.PAGES_DEPLOY == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

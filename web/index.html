@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flash firmware · Multi-Sensor Navigation System</title>
+<style>
+  :root {
+    --bg: #f6f5f1; --card: #ffffff; --ink: #1b1d21; --muted: #5d6470; --line: #dedbd3;
+    --accent: #0f6b5c; --accent-ink: #ffffff; --warn-bg: #fff4d6; --warn-ink: #6b4a00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a; --card: #1d2026; --ink: #eceae4; --muted: #a2a8b3; --line: #30343c;
+      --accent: #4fc3ad; --accent-ink: #0c1f1b; --warn-bg: #3a2f10; --warn-ink: #f3d98a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 720px; margin: 0 auto; padding: 48px 20px 64px; }
+  h1 { font-size: 1.7rem; line-height: 1.2; margin: 0 0 8px; letter-spacing: -0.01em; }
+  .lede { color: var(--muted); margin: 0 0 28px; }
+  .meta { font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); margin-bottom: 20px; }
+  .board {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 18px 20px; margin-bottom: 14px;
+    display: flex; gap: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap;
+  }
+  .board h2 { font-size: 1.05rem; margin: 0 0 2px; }
+  .board p { margin: 0; color: var(--muted); font-size: 0.9rem; }
+  .board code { font-size: 0.82rem; }
+  .tag { display: inline-block; font-size: 0.75rem; padding: 1px 8px; border-radius: 999px;
+         border: 1px solid var(--line); color: var(--muted); margin-left: 6px; vertical-align: 2px; }
+  button[slot="activate"] {
+    font: inherit; font-weight: 600; cursor: pointer; border: 0; border-radius: 8px;
+    padding: 10px 18px; background: var(--accent); color: var(--accent-ink);
+  }
+  button[slot="activate"]:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+  .note { background: var(--warn-bg); color: var(--warn-ink); border-radius: 10px; padding: 12px 16px; margin: 0 0 20px; }
+  .steps { padding-left: 20px; color: var(--muted); }
+  .steps li { margin-bottom: 6px; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  a { color: var(--accent); }
+  footer { margin-top: 36px; color: var(--muted); font-size: 0.9rem; }
+</style>
+<script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+</head>
+<body>
+<main>
+  <h1>Flash the firmware from your browser</h1>
+  <p class="lede">Plug the board in over USB, pick it below, and choose its serial port when the browser asks. Nothing to install.</p>
+
+  <p class="note" id="unsupported" hidden>
+    This browser cannot talk to serial devices. Use Chrome or Edge on a desktop computer,
+    or flash from a terminal with <code>nav flash</code>.
+  </p>
+
+  <div class="meta" id="meta">Loading firmware list…</div>
+  <div id="boards"></div>
+
+  <ol class="steps">
+    <li>If no port appears, the board's USB chip needs a driver (CP210x or CH340), or the cable is charge-only.</li>
+    <li>If flashing does not start, hold the board's BOOT button while it connects.</li>
+    <li>Flashing replaces whatever firmware is on the board.</li>
+  </ol>
+
+  <footer>
+    Prefer a terminal? <code>nav flash</code> from
+    <a href="https://github.com/multi-sensor-navigation-system/data-pipeline">navkit</a>
+    detects the board, verifies the download and flashes it.
+    Source: <a href="https://github.com/multi-sensor-navigation-system/firmware">firmware</a>.
+  </footer>
+</main>
+
+<script>
+  if (!("serial" in navigator)) document.getElementById("unsupported").hidden = false;
+
+  function el(tag, text, cls) {
+    const node = document.createElement(tag);
+    if (text) node.textContent = text;
+    if (cls) node.className = cls;
+    return node;
+  }
+
+  fetch("manifest.json")
+    .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .then((m) => {
+      document.getElementById("meta").textContent =
+        "Firmware " + m.version + " · build " + m.git + " · wire protocol v" + m.proto;
+      const list = document.getElementById("boards");
+      // Boards that have run on hardware first.
+      const entries = Object.entries(m.boards).sort(
+        (a, b) => (a[1].status === "tested" ? 0 : 1) - (b[1].status === "tested" ? 0 : 1));
+      for (const [id, b] of entries) {
+        const card = el("div", null, "board");
+        const info = el("div");
+        const title = el("h2", b.name);
+        if (b.status && b.status !== "tested") title.appendChild(el("span", b.status, "tag"));
+        info.appendChild(title);
+        const line = el("p");
+        line.appendChild(el("code", id));
+        line.appendChild(document.createTextNode(" · " + (b.size / 1024).toFixed(0) + " kB"));
+        info.appendChild(line);
+        card.appendChild(info);
+
+        const install = document.createElement("esp-web-install-button");
+        install.setAttribute("manifest", "web/" + id + ".json");
+        const button = el("button", "Flash");
+        button.setAttribute("slot", "activate");
+        install.appendChild(button);
+        card.appendChild(install);
+        list.appendChild(card);
+      }
+    })
+    .catch((e) => {
+      document.getElementById("meta").textContent = "Could not load the firmware list (" + e.message + ").";
+    });
+</script>
+</body>
+</html>
