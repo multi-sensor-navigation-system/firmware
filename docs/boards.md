@@ -1,6 +1,6 @@
 # Boards
 
-Each supported board is described by one manifest, `boards/<id>.json`, and
+Each supported board is described by one manifest, `targets/<id>.json`, and
 one PlatformIO environment with the same name. The manifest is the single
 source for the pins, the flash layout and the board's status; the build, the
 release images, `nav flash` and the firmware's `HELLO` frame all read from it.
@@ -36,7 +36,7 @@ release images, `nav flash` and the firmware's `HELLO` frame all read from it.
 
 ## Adding a board
 
-1. Create `boards/<id>.json`.
+1. Create `targets/<id>.json`.
 2. Add an environment to `platformio.ini`:
    ```ini
    [env:<id>]

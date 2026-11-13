@@ -1,7 +1,7 @@
 #pragma once
 
 // ── BOARD PINS ─────────────────────────────────────────
-// Set per board from boards/<id>.json by scripts/board.py. The fallbacks
+// Set per board from targets/<id>.json by scripts/board.py. The fallbacks
 // below are the esp32dev values, for builds made outside PlatformIO.
 #ifndef PIN_SDA
 #define PIN_SDA 21

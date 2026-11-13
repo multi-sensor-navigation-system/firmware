@@ -19,7 +19,7 @@ def main() -> int:
     for board in manifests:
         env = envs.get(board["id"])
         if env is None:
-            errors.append(f"boards/{board['id']}.json has no [env:{board['id']}] in platformio.ini")
+            errors.append(f"targets/{board["id"]}.json has no [env:{board['id']}] in platformio.ini")
         elif env.get("custom_board") != board["id"]:
             errors.append(f"[env:{board['id']}] must set custom_board = {board['id']}")
 

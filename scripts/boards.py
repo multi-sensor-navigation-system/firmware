@@ -1,4 +1,7 @@
-"""Board manifests (boards/<id>.json): loading and validation.
+"""Board manifests (targets/<id>.json): loading and validation.
+
+The directory is not called boards/ because PlatformIO reserves that name
+for its own custom board definitions.
 
 Shared by the PlatformIO pre-build script (scripts/board.py), the release
 tool (tools/release.py) and the CI check (tools/check_boards.py). Standard
@@ -9,7 +12,7 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-BOARDS_DIR = ROOT / "boards"
+BOARDS_DIR = ROOT / "targets"
 
 REQUIRED_PINS = ("sda", "scl", "gps_rx", "gps_tx")
 REQUIRED_FLASH = ("mode", "freq", "size", "bootloader_offset")
@@ -39,7 +42,7 @@ def load(board_id: str) -> dict:
     path = BOARDS_DIR / f"{board_id}.json"
     if not path.is_file():
         known = ", ".join(sorted(p.stem for p in BOARDS_DIR.glob("*.json")))
-        raise BoardError(f"no manifest boards/{board_id}.json (known boards: {known})")
+        raise BoardError(f"no manifest targets/{board_id}.json (known boards: {known})")
     board = json.loads(path.read_text())
     validate(board, path.name)
     if board["id"] != board_id:

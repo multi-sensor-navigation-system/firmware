@@ -303,7 +303,7 @@ firmware/
 │   ├── transport.h       # Host transport interface
 │   ├── wire.h            # Wire protocol v1: framing, CRC, COBS
 │   └── version.h         # Firmware version
-├── boards/               # One manifest per supported board (pins, flash layout, status)
+├── targets/              # One manifest per supported board (pins, flash layout, status)
 ├── scripts/
 │   ├── version.py        # Stamps the build with the git revision
 │   ├── board.py          # Applies the board manifest to the build
