@@ -13,6 +13,11 @@ void transport_begin() {
     Serial.setTxBufferSize(4096);
     Serial.begin(HOST_BAUD);
     while (!Serial) delay(10);
+#if !MSNS_WIRE_CSV
+    // Terminate whatever the boot ROM printed, so that noise cannot be
+    // glued onto the first real frame.
+    Serial.write((uint8_t)0x00);
+#endif
 }
 
 static int format_hello(char *buf, size_t size, const char *sensors) {

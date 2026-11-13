@@ -26,6 +26,8 @@ frame = COBS( type:u8 | body | crc16:u16le )  0x00
 - All multi-byte fields are little-endian.
 - A frame whose CRC fails, or whose type is unknown, is dropped; the stream
   continues at the next delimiter.
+- Empty frames (two delimiters in a row) are ignored. The firmware writes one
+  `0x00` at boot so the boot ROM's output cannot corrupt the first frame.
 
 ## Frame types
 
