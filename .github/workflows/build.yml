@@ -13,6 +13,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  host-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wire protocol tests
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -Iinclude tools/host/test_wire.cpp -o test_wire
+          ./test_wire
+
   build:
     runs-on: ubuntu-latest
     steps:

@@ -8,7 +8,7 @@
 
 > **Repo 1 of 4** · 500 Hz deterministic multi-sensor data acquisition firmware for real-time navigation systems.
 > 
-> Streams fused IMU · magnetometer · barometer · GPS telemetry as timestamped CSV over UART at 921600 baud.
+> Streams fused IMU · magnetometer · barometer · GPS telemetry as checksummed binary frames over UART at 921600 baud.
 >
 > ⚠️ *This repository was named `navigation-system-firmware` before moving under the `multi-sensor-navigation-system` organization from [@ShivtejG236](https://github.com/ShivtejG236).*
 
@@ -23,7 +23,7 @@ The firmware runs two pinned FreeRTOS tasks:
 | Task | Core | Priority | Responsibility |
 |---|---|---|---|
 | `task_sensors` | 1 | 5 | IMU/mag/baro polling, ring-buffer producer |
-| `task_serial` | 0 | 3 | GPS UART drain, CSV output, ring-buffer consumer |
+| `task_serial` | 0 | 3 | GPS UART drain, host output, ring-buffer consumer |
 
 The split exists by design: `task_sensors` busy-waits at 500 Hz on Core 1 so it never misses an IMU deadline. GPS UART draining lives on Core 0 — if it ran on Core 1, the Core 1 UART ISR would starve and drop NMEA bytes.
 
@@ -49,7 +49,7 @@ graph TD
         GPS["NEO-6M GPS\n1 Hz NMEA drain"]
         SNAP["Snapshot GPS globals\ninto SensorRow"]
         POP["rb_pop"]
-        CSV["CSV → UART0\n921600 baud"]
+        CSV["Binary frames → UART0\n921600 baud"]
         GPS --> SNAP
         SNAP --> POP
         RB --> POP
@@ -103,9 +103,19 @@ Lower-rate sensors are polled sub-sampled within the 500 Hz IMU loop — no sepa
 
 ---
 
-## CSV Format & Fault Flags
+## Wire Format
 
-The firmware prints a single header line on boot, then one row per IMU tick:
+The default build sends **binary frames**: `COBS(type | body | crc16)` terminated by `0x00`. Each 500 Hz sample is at most 103 bytes (about 56 % of the 921600-baud link), carries a checksum and a sequence number, and the stream resynchronises on the next `0x00` after any corruption. The firmware identifies itself (board, version, git revision, protocol version) in a `HELLO` frame at boot and every 2 s after.
+
+The full specification is in [`docs/wire-protocol.md`](docs/wire-protocol.md). The host logger in [Repo 2](https://github.com/multi-sensor-navigation-system/data-pipeline) decodes the frames back into the CSV columns below.
+
+> The original CSV stream needed about 177 bytes per row, which is 96 % of the link at 500 Hz. It is kept as a debug build: `pio run -e esp32dev-csv`.
+
+---
+
+## Sample Fields & Fault Flags
+
+Each sample carries these fields (the CSV debug build prints them as one header line on boot, then one row per IMU tick):
 
 
 <details>
@@ -272,11 +282,7 @@ When a lower-rate sensor misses its sub-deadline within a 500 Hz tick, the **las
 
 ## Ring Buffer
 
-A **128-slot lock-free SPSC ring buffer** (`RING_SIZE` must be a power of 2) decouples the sensor task from the serial task. `rb_push` / `rb_pop` use `__sync_synchronize()` memory barriers to prevent store/load reordering across the two cores — no mutex, no FreeRTOS synchronisation primitive. If the ring fills (serial output can't keep up), the producer drops the row and increments `rb_drops`. Drops are reported on `Serial` once per second:
-
-```
-# rb_drops=12
-```
+A **128-slot lock-free SPSC ring buffer** (`RING_SIZE` must be a power of 2) decouples the sensor task from the serial task. `rb_push` / `rb_pop` use `__sync_synchronize()` memory barriers to prevent store/load reordering across the two cores — no mutex, no FreeRTOS synchronisation primitive. If the ring fills (serial output can't keep up), the producer drops the row and increments `rb_drops`. The running count is reported once per second in the `STATUS` frame (as a `# rb_drops=12` line in the CSV debug build).
 
 Designed for SPSC (single producer, single consumer); not safe for multi-writer scenarios.
 
@@ -287,14 +293,22 @@ Designed for SPSC (single producer, single consumer); not safe for multi-writer 
 ```
 firmware/
 ├── src/
-│   └── main.cpp          # All firmware logic
+│   ├── main.cpp          # Sensor init, the two tasks
+│   └── transport.cpp     # Host output: binary frames (default) or CSV
 ├── include/
 │   ├── config.h          # Pin assignments, sample rates, fault flags, ring size
-│   └── sensor_row.h      # SensorRow struct + lock-free ring buffer
+│   ├── sensor_row.h      # SensorRow struct + lock-free ring buffer
+│   ├── transport.h       # Host transport interface
+│   ├── wire.h            # Wire protocol v1: framing, CRC, COBS
+│   └── version.h         # Firmware version
+├── scripts/
+│   └── version.py        # Stamps the build with the git revision
+├── tools/host/           # Host-side protocol tests + golden stream generator
 ├── platformio.ini        # PlatformIO build config
 ├── sdkconfig.defaults    # ESP-IDF SDK overrides (task WDT tuning)
 └── docs/
-    └── setup.png          # Schematic diagram
+    ├── wire-protocol.md  # Wire protocol specification
+    └── setup.png         # Schematic diagram
 ```
 
 ---
@@ -316,24 +330,28 @@ Managed by PlatformIO — no manual installation needed.
 ## Build & Flash
 
 ```bash
-# Build
-pio run
-
-# Flash + open monitor
-pio run --target upload && pio device monitor --baud 921600
+# Build and flash the default (binary) firmware
+pio run -e esp32dev --target upload
 ```
 
-On boot you should see sensor init messages followed by the CSV header:
+The binary stream is not readable in a serial monitor; log it with the host logger from [Repo 2](https://github.com/multi-sensor-navigation-system/data-pipeline), which prints the firmware's messages and writes the CSV.
+
+To watch the stream by eye, flash the CSV debug build:
+
+```bash
+pio run -e esp32dev-csv --target upload && pio device monitor --baud 921600
+```
 
 ```
 # MPU-6050 OK
 # QMC5883L OK
 # BMP280 OK
 # GPS UART started — waiting for fix (HDOP reported in data)
+# hello board=esp32dev;fw=0.2.0;git=abc1234;imu_hz=500;...
 t_imu_us,t_read_start_us,...
 ```
 
-If a sensor is absent, firmware continues logging available sensors and annotates the header with a `# WARN` line. `fault_flag` will reflect which sensor is missing on every row.
+If a sensor is absent, firmware continues logging available sensors and reports a `WARN` message. `fault_flag` will reflect which sensor is missing on every row.
 
 ---
 
@@ -351,12 +369,12 @@ If a sensor is absent, firmware continues logging available sensors and annotate
 
 ```mermaid
 graph LR
-    FW["🔧 firmware\nESP32 sensor acquisition\nCSV @ 921600 baud"]
+    FW["🔧 firmware\nESP32 sensor acquisition\nbinary frames @ 921600 baud"]
     PL["📡 data-pipeline\nHost logger · serial → CSV\ncleaning & calibration"]
     AN["📊 analysis\nEKF · Allan variance\nvisualisation · reports"]
     EH["🧭 edgehard\nDead reckoning\nGPS dropout modelling"]
 
-    FW -->|"UART CSV stream"| PL
+    FW -->|"UART binary stream"| PL
     PL -->|"clean .csv files"| AN
     PL -->|"clean .csv files"| EH
     AN -. "future: model feedback" .-> EH
@@ -364,7 +382,7 @@ graph LR
 
 | Repo | Role | Status |
 |---|---|---|
-| **`firmware`** ← *(this repo, formerly navigation-system-firmware)* | ESP32 firmware — sensor acquisition & CSV streaming | ✅ Active |
+| **`firmware`** ← *(this repo, formerly navigation-system-firmware)* | ESP32 firmware — sensor acquisition & binary streaming | ✅ Active |
 | [`data-pipeline`](https://github.com/multi-sensor-navigation-system/data-pipeline) | Host-side logger & calibration — reads serial, writes timestamped CSV | 	✅ Active |
 | [`analysis`](#) | Offline processing — EKF, Allan variance, map visualisation, reports | 🚧 In progress |
 | [`edgehard`](#) | Dead reckoning — GPS dropout modelling, edge inference | 🔜 Planned |
