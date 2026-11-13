@@ -24,10 +24,10 @@ bool has_mpu = false;
 bool has_qmc = false;
 bool has_bmp = false;
 
-// Last known good GPS state — written and read exclusively by task_sensors
-// (Core 1). task_serial (Core 0) never touches these globals directly;
-// it only reads rows already in the ring buffer.
-// Cross-core access exists but is benign for logging (no RMW, snapshot semantics).
+// Last known good GPS state — written by task_serial (Core 0), which drains
+// the GPS UART, and snapshotted into each row by task_sensors (Core 1).
+// Single writer, single reader, no read-modify-write. The 64-bit doubles can
+// tear across cores; that is accepted for logging (see README).
 volatile double  gps_lat       = 0.0;
 volatile double  gps_lon       = 0.0;
 volatile float   gps_alt       = 0.0f;
