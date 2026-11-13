@@ -21,6 +21,8 @@ jobs:
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -Iinclude tools/host/test_wire.cpp -o test_wire
           ./test_wire
+      - name: Board manifests
+        run: python3 tools/check_boards.py
 
   build:
     runs-on: ubuntu-latest
@@ -33,12 +35,15 @@ jobs:
         with:
           path: ~/.platformio
           key: pio-${{ hashFiles('platformio.ini') }}
-      - run: pip install platformio
-      - run: pio run
+      - run: pip install platformio "esptool>=5"
+      - name: Build every environment
+        run: pio run
+      - name: Assemble release images (dry run)
+        run: |
+          version="$(sed -nE 's/^#define MSNS_FW_VERSION "(.*)"/\1/p' include/version.h)"
+          python tools/release.py --tag "v${version}" --out dist
+          cat dist/manifest.json
       - uses: actions/upload-artifact@v4
         with:
-          name: firmware-esp32dev
-          path: |
-            .pio/build/esp32dev/firmware.bin
-            .pio/build/esp32dev/bootloader.bin
-            .pio/build/esp32dev/partitions.bin
+          name: firmware-images
+          path: dist/
