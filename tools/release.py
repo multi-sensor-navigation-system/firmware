@@ -7,6 +7,7 @@ the file `nav flash` and the web flasher read to find the right image.
 
     pio run                                  # build every environment first
     python tools/release.py --tag v0.2.0 --out dist
+    python tools/release.py --tag v0.2.0 --out dist --site site   # also build the web flasher
 
 Requires esptool >= 5 on PATH.
 """
@@ -14,6 +15,7 @@ import argparse
 import hashlib
 import json
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -60,12 +62,42 @@ def merge(board: dict, build_dir: Path, boot_app0: Path, out: Path) -> None:
     subprocess.run(cmd, check=True)
 
 
+# esptool chip id → ESP Web Tools chipFamily
+CHIP_FAMILY = {"esp32": "ESP32", "esp32s2": "ESP32-S2", "esp32s3": "ESP32-S3",
+               "esp32c3": "ESP32-C3", "esp32c6": "ESP32-C6", "esp32h2": "ESP32-H2"}
+
+
+def build_site(manifest: dict, dist: Path, site: Path) -> None:
+    """The web flasher: web/index.html, the images, and one ESP Web Tools manifest per board.
+
+    The images are copied next to the page because browsers cannot fetch
+    GitHub release assets cross-origin.
+    """
+    (site / "web").mkdir(parents=True, exist_ok=True)
+    shutil.copy(ROOT / "web" / "index.html", site / "index.html")
+    shutil.copy(dist / "manifest.json", site / "manifest.json")
+    for board_id, entry in manifest["boards"].items():
+        shutil.copy(dist / entry["image"], site / entry["image"])
+        web_manifest = {
+            "name": f"MSNS firmware — {entry['name']}",
+            "version": manifest["version"],
+            "new_install_prompt_erase": False,
+            "builds": [{
+                "chipFamily": CHIP_FAMILY[entry["chip"]],
+                "parts": [{"path": f"../{entry['image']}", "offset": 0}],
+            }],
+        }
+        (site / "web" / f"{board_id}.json").write_text(json.dumps(web_manifest, indent=2) + "\n")
+    print(f"  web flasher → {site}")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--tag", required=True, help="release tag, e.g. v0.2.0")
     ap.add_argument("--out", type=Path, default=ROOT / "dist")
     ap.add_argument("--build-root", type=Path, default=ROOT / ".pio" / "build")
     ap.add_argument("--boot-app0", type=Path, default=DEFAULT_BOOT_APP0)
+    ap.add_argument("--site", type=Path, help="also build the web flasher into this directory")
     args = ap.parse_args()
 
     fw_version = macro("version.h", "MSNS_FW_VERSION")
@@ -96,6 +128,8 @@ def main() -> int:
 
     (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"  manifest.json  ({len(manifest['boards'])} boards, proto {manifest['proto']})")
+    if args.site:
+        build_site(manifest, args.out, args.site)
     return 0
 
 

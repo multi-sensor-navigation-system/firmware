@@ -13,6 +13,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Host output moved out of `main.cpp` into `src/transport.cpp`.
 
 ### Added
+- **Web flasher** (`web/index.html`, built by `tools/release.py --site`):
+  flash any released board from Chrome or Edge with no install. Deployed to
+  GitHub Pages by the release workflow when `PAGES_DEPLOY=true`.
 - **Board manifests** (`targets/<id>.json`): pins, flash layout and status
   per board, applied to the build by `scripts/board.py`. Adding a board is
   one JSON file and one PlatformIO environment. See `docs/boards.md`.

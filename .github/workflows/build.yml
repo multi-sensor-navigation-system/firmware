@@ -41,9 +41,13 @@ jobs:
       - name: Assemble release images (dry run)
         run: |
           version="$(sed -nE 's/^#define MSNS_FW_VERSION "(.*)"/\1/p' include/version.h)"
-          python tools/release.py --tag "v${version}" --out dist
+          python tools/release.py --tag "v${version}" --out dist --site site
           cat dist/manifest.json
       - uses: actions/upload-artifact@v4
         with:
           name: firmware-images
           path: dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-flasher
+          path: site/
