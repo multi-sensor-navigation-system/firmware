@@ -88,6 +88,8 @@ Data flow is single-producer (Core 1) → single-consumer (Core 0) via a lock-fr
 
 All three I²C devices share the same bus at 400 kHz fast-mode.
 
+Pins are set per board. Supported boards and how to add one: [`docs/boards.md`](docs/boards.md).
+
 ---
 
 ## Sample Rates
@@ -301,13 +303,20 @@ firmware/
 │   ├── transport.h       # Host transport interface
 │   ├── wire.h            # Wire protocol v1: framing, CRC, COBS
 │   └── version.h         # Firmware version
+├── targets/              # One manifest per supported board (pins, flash layout, status)
 ├── scripts/
-│   └── version.py        # Stamps the build with the git revision
-├── tools/host/           # Host-side protocol tests + golden stream generator
+│   ├── version.py        # Stamps the build with the git revision
+│   ├── board.py          # Applies the board manifest to the build
+│   └── boards.py         # Manifest loading and validation
+├── tools/
+│   ├── host/             # Host-side protocol tests + golden stream generator
+│   ├── check_boards.py   # CI check: manifests ↔ PlatformIO environments
+│   └── release.py        # Merges release images and writes manifest.json
 ├── platformio.ini        # PlatformIO build config
 ├── sdkconfig.defaults    # ESP-IDF SDK overrides (task WDT tuning)
 └── docs/
     ├── wire-protocol.md  # Wire protocol specification
+    ├── boards.md         # Supported boards, adding a board
     └── setup.png         # Schematic diagram
 ```
 
@@ -333,6 +342,8 @@ Managed by PlatformIO — no manual installation needed.
 # Build and flash the default (binary) firmware
 pio run -e esp32dev --target upload
 ```
+
+Replace `esp32dev` with another board id from [`docs/boards.md`](docs/boards.md) to build for it. Released images can be flashed without PlatformIO: `nav flash` from [Repo 2](https://github.com/multi-sensor-navigation-system/data-pipeline) detects the board and downloads the right one.
 
 The binary stream is not readable in a serial monitor; log it with the host logger from [Repo 2](https://github.com/multi-sensor-navigation-system/data-pipeline), which prints the firmware's messages and writes the CSV.
 

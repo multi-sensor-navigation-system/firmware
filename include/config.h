@@ -1,14 +1,28 @@
 #pragma once
 
-// ── I²C ────────────────────────────────────────────────
+// ── BOARD PINS ─────────────────────────────────────────
+// Set per board from targets/<id>.json by scripts/board.py. The fallbacks
+// below are the esp32dev values, for builds made outside PlatformIO.
+#ifndef PIN_SDA
 #define PIN_SDA 21
+#endif
+#ifndef PIN_SCL
 #define PIN_SCL 22
+#endif
+#ifndef PIN_GPS_RX
+#define PIN_GPS_RX 16
+#endif
+#ifndef PIN_GPS_TX
+#define PIN_GPS_TX 17
+#endif
+#ifndef GPS_UART_NUM
+#define GPS_UART_NUM 2
+#endif
+
+// ── I²C ────────────────────────────────────────────────
 #define I2C_FREQ_HZ 400000
 
 // ── GPS UART ───────────────────────────────────────────
-#define GPS_UART_NUM 2
-#define PIN_GPS_RX 16
-#define PIN_GPS_TX 17
 #define GPS_BAUD 9600
 
 // ── SERIAL (host logging) ──────────────────────────────

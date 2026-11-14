@@ -13,6 +13,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Host output moved out of `main.cpp` into `src/transport.cpp`.
 
 ### Added
+- **Board manifests** (`targets/<id>.json`): pins, flash layout and status
+  per board, applied to the build by `scripts/board.py`. Adding a board is
+  one JSON file and one PlatformIO environment. See `docs/boards.md`.
+- `esp32-s3-devkitc-1` board (builds in CI; not yet run on hardware).
+- `tools/release.py`: one merged image per board plus `manifest.json`
+  (version, git revision, protocol version, SHA-256 per image), published
+  by the release workflow and read by `nav flash`.
 - `HELLO` frame announcing board, firmware version, git revision, protocol
   version, sample rates and detected sensors, at boot and every 2 s.
 - `STATUS` frame once per second with ring-buffer drops and samples sent.

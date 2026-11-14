@@ -1,0 +1,9 @@
+{
+  "id": "esp32dev",
+  "name": "ESP32 DevKit (ESP32-WROOM-32)",
+  "chip": "esp32",
+  "status": "tested",
+  "pins": { "sda": 21, "scl": 22, "gps_rx": 16, "gps_tx": 17 },
+  "gps_uart": 2,
+  "flash": { "mode": "dio", "freq": "40m", "size": "4MB", "bootloader_offset": "0x1000" }
+}
