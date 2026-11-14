@@ -10,6 +10,7 @@
 #include "config.h"
 #include "esp_task_wdt.h"
 #include "sensor_row.h"
+#include "transport.h"
 
 // ── GLOBALS ────────────────────────────────────────────
 Adafruit_MPU6050    mpu;
@@ -37,27 +38,19 @@ volatile bool    gps_valid     = false;
 volatile uint64_t gps_ts_us    = 0;
 volatile uint32_t rb_drops = 0;
 
-// ── CSV HEADER ─────────────────────────────────────────
-static const char CSV_HEADER[] =
-    "t_imu_us,t_read_start_us,t_proc_end_us,t_gps_us,"
-    "ax_g,ay_g,az_g,gx_dps,gy_dps,gz_dps,"
-    "mx_uT,my_uT,mz_uT,"
-    "pressure_hPa,bmp_temp_C,"
-    "lat_deg,lon_deg,alt_gps_m,hdop,satellites,"
-    "fault_flag,jitter_us";
+// Comma-separated list of the sensors that initialised; sent in the hello.
+static char sensor_list[32] = "";
 
 // ── FORWARD DECLS ──────────────────────────────────────
 void task_sensors(void* pv);
 void task_serial(void* pv);
-void print_row(const SensorRow& r);
 bool init_sensors();
 
 // ══════════════════════════════════════════════════════
 //  SETUP
 // ══════════════════════════════════════════════════════
 void setup() {
-    Serial.begin(HOST_BAUD);
-    while (!Serial) delay(10);
+    transport_begin();
 
     Wire.begin(PIN_SDA, PIN_SCL);
     Wire.setClock(I2C_FREQ_HZ);
@@ -65,11 +58,15 @@ void setup() {
     gpsSerial.begin(GPS_BAUD, SERIAL_8N1, PIN_GPS_RX, PIN_GPS_TX);
 
     if (!init_sensors()) {
-        Serial.println("# WARN: some sensors missing — logging available sensors only.");
+        transport_log("WARN: some sensors missing — logging available sensors only.");
     }
 
-    // Print header once — Python logger watches for this line
-    Serial.println(CSV_HEADER);
+    snprintf(sensor_list, sizeof(sensor_list), "%s%s%sgps",
+             has_mpu ? "imu," : "", has_qmc ? "mag," : "", has_bmp ? "baro," : "");
+
+    // Identify the firmware before the first sample — the host logger
+    // waits for this.
+    transport_hello(sensor_list);
 
     // Deregister idle tasks from the task watchdog.
     // Our sensor task on Core 1 limits idle task runtime — without this
@@ -100,14 +97,14 @@ bool init_sensors() {
 
     // MPU-6050
     if (!mpu.begin()) {
-        Serial.println("# MPU-6050 not found");
+        transport_log("MPU-6050 not found");
         ok = false;
     } else {
         has_mpu = true;
         mpu.setAccelerometerRange(MPU6050_RANGE_4_G);
         mpu.setGyroRange(MPU6050_RANGE_500_DEG);
         mpu.setFilterBandwidth(MPU6050_BAND_44_HZ);
-        Serial.println("# MPU-6050 OK");
+        transport_log("MPU-6050 OK");
     }
 
     // QMC5883L — begin() always succeeds (no ACK check in library),
@@ -115,18 +112,18 @@ bool init_sensors() {
     Wire.beginTransmission(0x0D);
     bool qmc_found = (Wire.endTransmission() == 0);
     if (!qmc_found) {
-        Serial.println("# QMC5883L not found (tried 0x0D)");
+        transport_log("QMC5883L not found (tried 0x0D)");
         ok = false;
     } else {
         has_qmc = true;
         mag.init();
         mag.setMode(0x01, 0x0C, 0x10, 0x00); // continuous, 200Hz, 8G, 512 OSR
-        Serial.println("# QMC5883L OK");
+        transport_log("QMC5883L OK");
     }
 
     // BMP280
     if (!bmp.begin(0x76)) {
-        Serial.println("# BMP280 not found (tried 0x76)");
+        transport_log("BMP280 not found (tried 0x76)");
         ok = false;
     } else {
         has_bmp = true;
@@ -138,11 +135,11 @@ bool init_sensors() {
                         Adafruit_BMP280::SAMPLING_X16, // (pressure) for better accuracy
                         Adafruit_BMP280::FILTER_X16,
                         Adafruit_BMP280::STANDBY_MS_63);
-        Serial.println("# BMP280 OK");
+        transport_log("BMP280 OK");
     }
 
     // to confirm GPS UART is alive
-    Serial.println("# GPS UART started — waiting for fix (HDOP reported in data)");
+    transport_log("GPS UART started — waiting for fix (HDOP reported in data)");
 
     return ok;
 }
@@ -330,54 +327,21 @@ void task_serial(void* pv) {
         }
 
         while (rb_pop(&ring, row)) {
-            print_row(row);
+            transport_sample(row);
         }
 
-        // Report ring buffer drops once per second as a firmware comment.
-        // Drops indicate the serial output can't keep up with the sensor rate.
-        static uint64_t last_drop_report = 0;
+        // Heartbeat once per second: reports ring buffer drops (the serial
+        // output not keeping up with the sensor rate) and, on the binary
+        // transport, re-announces the firmware identity.
+        static uint64_t last_heartbeat = 0;
         uint64_t now_us = esp_timer_get_time();
-        if (rb_drops > 0 && now_us - last_drop_report >= 1000000ULL) {
-            uint32_t drops = rb_drops;   // snapshot: report a consistent value from one point in time
-            Serial.printf("# rb_drops=%u\n", drops);
-            last_drop_report = now_us;
+        if (now_us - last_heartbeat >= 1000000ULL) {
+            transport_heartbeat(rb_drops, sensor_list);
+            last_heartbeat = now_us;
         }
 
         vTaskDelay(1);
     }
 }
 
-// ── FORMAT ROW AS CSV ──────────────────────────────────
-void print_row(const SensorRow& r) {
-    // Using Serial.print chains avoids sprintf heap allocation.
-    // Format: full precision for doubles (lat/lon), 4dp for floats.
-
-    Serial.print(r.t_imu_us);        Serial.print(',');
-    Serial.print(r.t_read_start_us); Serial.print(',');
-    Serial.print(r.t_proc_end_us);   Serial.print(',');
-    Serial.print(r.t_gps_us);        Serial.print(',');
-
-    Serial.print(r.ax, 5);  Serial.print(',');
-    Serial.print(r.ay, 5);  Serial.print(',');
-    Serial.print(r.az, 5);  Serial.print(',');
-    Serial.print(r.gx, 4);  Serial.print(',');
-    Serial.print(r.gy, 4);  Serial.print(',');
-    Serial.print(r.gz, 4);  Serial.print(',');
-
-    Serial.print(r.mx, 4);  Serial.print(',');
-    Serial.print(r.my, 4);  Serial.print(',');
-    Serial.print(r.mz, 4);  Serial.print(',');
-
-    Serial.print(r.pressure, 4); Serial.print(',');
-    Serial.print(r.bmp_temp, 3); Serial.print(',');
-
-    Serial.print(r.lat, 8);       Serial.print(',');
-    Serial.print(r.lon, 8);       Serial.print(',');
-    Serial.print(r.alt_gps, 2);   Serial.print(',');
-    Serial.print(r.hdop, 2);      Serial.print(',');
-    Serial.print(r.satellites);   Serial.print(',');
-
-    Serial.print(r.fault_flag);   Serial.print(',');
-    Serial.println(r.jitter_us);
-}
 // Fault flags describe this sample only (not latched system faults)
