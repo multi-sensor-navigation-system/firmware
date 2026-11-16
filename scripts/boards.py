@@ -14,7 +14,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 BOARDS_DIR = ROOT / "targets"
 
+CHIPS_DIR = ROOT / "chips"
+
 REQUIRED_PINS = ("sda", "scl", "gps_rx", "gps_tx")
+# Signals the chip drives. gps_rx only listens, so an input-only GPIO is fine.
+OUTPUT_PINS = ("sda", "scl", "gps_tx")
 REQUIRED_FLASH = ("mode", "freq", "size", "bootloader_offset")
 
 
@@ -22,17 +26,53 @@ class BoardError(ValueError):
     pass
 
 
+def load_chip(chip: str) -> dict:
+    """Pin rules for one chip family (chips/<chip>.json)."""
+    path = CHIPS_DIR / f"{chip}.json"
+    if not path.is_file():
+        known = ", ".join(sorted(p.stem for p in CHIPS_DIR.glob("*.json")))
+        raise BoardError(f"no pin rules chips/{chip}.json (known chips: {known})")
+    return json.loads(path.read_text())
+
+
+def pin_errors(pins: dict, gps_uart: int, chip: dict, reserved=None) -> list[str]:
+    """Every reason this pin assignment cannot work on this chip and board.
+
+    An empty list means the assignment is allowed. The same function backs the
+    manifest check and any tool that lets a user choose pins.
+    """
+    errors = []
+    reserved = reserved or {}
+    for signal in REQUIRED_PINS:
+        gpio = pins.get(signal)
+        if not isinstance(gpio, int) or isinstance(gpio, bool):
+            errors.append(f"{signal}: must be an integer GPIO number")
+            continue
+        if gpio not in chip["gpio"]:
+            errors.append(f"{signal}: GPIO {gpio} does not exist on the {chip['chip']}")
+        elif str(gpio) in chip["blocked"]:
+            errors.append(f"{signal}: GPIO {gpio} is {chip['blocked'][str(gpio)]}")
+        elif str(gpio) in reserved:
+            errors.append(f"{signal}: GPIO {gpio} is reserved on this board: {reserved[str(gpio)]}")
+        elif signal in OUTPUT_PINS and gpio in chip["input_only"]:
+            errors.append(f"{signal}: GPIO {gpio} is input-only")
+    used = [pins[s] for s in REQUIRED_PINS if isinstance(pins.get(s), int)]
+    for gpio in sorted({g for g in used if used.count(g) > 1}):
+        shared = ", ".join(s for s in REQUIRED_PINS if pins.get(s) == gpio)
+        errors.append(f"GPIO {gpio} is assigned to more than one signal ({shared})")
+    if gps_uart not in chip["uarts"]:
+        allowed = ", ".join(str(u) for u in chip["uarts"])
+        errors.append(f"gps_uart: UART{gps_uart} cannot be used (allowed: {allowed}; UART0 is the host link)")
+    return errors
+
+
 def validate(board: dict, source: str) -> None:
     for key in ("id", "name", "chip", "status", "pins", "gps_uart", "flash"):
         if key not in board:
             raise BoardError(f"{source}: missing '{key}'")
-    for pin in REQUIRED_PINS:
-        if not isinstance(board["pins"].get(pin), int):
-            raise BoardError(f"{source}: pins.{pin} must be an integer GPIO number")
-    if len({board["pins"][p] for p in REQUIRED_PINS}) != len(REQUIRED_PINS):
-        raise BoardError(f"{source}: two signals share a GPIO")
-    if not isinstance(board["gps_uart"], int) or board["gps_uart"] == 0:
-        raise BoardError(f"{source}: gps_uart must be a UART other than 0 (UART0 is the host link)")
+    errors = pin_errors(board["pins"], board["gps_uart"], load_chip(board["chip"]), board.get("reserved"))
+    if errors:
+        raise BoardError(f"{source}: " + "; ".join(errors))
     for key in REQUIRED_FLASH:
         if key not in board["flash"]:
             raise BoardError(f"{source}: missing flash.{key}")

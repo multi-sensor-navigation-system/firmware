@@ -1,0 +1,22 @@
+{
+  "chip": "esp32",
+  "source": "https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/peripherals/gpio.html",
+  "gpio": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 25, 26, 27, 32, 33, 34, 35, 36, 37, 38, 39],
+  "input_only": [34, 35, 36, 37, 38, 39],
+  "uarts": [1, 2],
+  "blocked": {
+    "0": "strapping pin: selects download mode at reset",
+    "2": "strapping pin: must be low or floating to enter download mode",
+    "5": "strapping pin: sets SDIO timing at reset",
+    "12": "strapping pin: a pull-up here selects 1.8 V flash and the board will not boot",
+    "15": "strapping pin: controls the boot log at reset",
+    "1": "UART0 TX, the host link",
+    "3": "UART0 RX, the host link",
+    "6": "connected to the SPI flash",
+    "7": "connected to the SPI flash",
+    "8": "connected to the SPI flash",
+    "9": "connected to the SPI flash",
+    "10": "connected to the SPI flash",
+    "11": "connected to the SPI flash"
+  }
+}

@@ -5,5 +5,12 @@
   "status": "builds in CI, not yet run on hardware",
   "pins": { "sda": 8, "scl": 9, "gps_rx": 18, "gps_tx": 17 },
   "gps_uart": 1,
+  "reserved": {
+    "35": "octal PSRAM on the N8R8 / N16R8 module variants",
+    "36": "octal PSRAM on the N8R8 / N16R8 module variants",
+    "37": "octal PSRAM on the N8R8 / N16R8 module variants",
+    "48": "on-board RGB LED (GPIO 38 on board revision 1.1)",
+    "38": "on-board RGB LED on board revision 1.1 (GPIO 48 on revision 1.0)"
+  },
   "flash": { "mode": "dio", "freq": "80m", "size": "8MB", "bootloader_offset": "0x0" }
 }
