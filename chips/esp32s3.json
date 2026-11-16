@@ -1,0 +1,24 @@
+{
+  "chip": "esp32s3",
+  "source": "https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/peripherals/gpio.html",
+  "gpio": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48],
+  "input_only": [],
+  "uarts": [1, 2],
+  "blocked": {
+    "0": "strapping pin: selects download mode at reset",
+    "3": "strapping pin: selects the JTAG source at reset",
+    "45": "strapping pin: selects the flash voltage at reset",
+    "46": "strapping pin: selects download mode and boot log at reset",
+    "19": "USB D-, used for flashing and the USB serial port",
+    "20": "USB D+, used for flashing and the USB serial port",
+    "43": "UART0 TX, the host link",
+    "44": "UART0 RX, the host link",
+    "26": "connected to the SPI flash / PSRAM",
+    "27": "connected to the SPI flash / PSRAM",
+    "28": "connected to the SPI flash / PSRAM",
+    "29": "connected to the SPI flash / PSRAM",
+    "30": "connected to the SPI flash / PSRAM",
+    "31": "connected to the SPI flash / PSRAM",
+    "32": "connected to the SPI flash / PSRAM"
+  }
+}

@@ -32,11 +32,26 @@ release images, `nav flash` and the firmware's `HELLO` frame all read from it.
 | `status` | Free text. Say honestly whether the board has been run on hardware |
 | `pins` | GPIO numbers for the shared I²C bus and the GPS UART |
 | `gps_uart` | Hardware UART used for the GPS. UART0 is the host link and cannot be used |
+| `reserved` | Optional. GPIOs this particular board already uses (LED, PSRAM, …), as `{"<gpio>": "<reason>"}` |
 | `flash` | Parameters for merging the release image. `bootloader_offset` is `0x1000` on the ESP32 and `0x0` on the ESP32-S3/C3 |
+
+## Pin rules
+
+`chips/<chip>.json` lists, for each chip family, which GPIOs exist, which are
+input-only, which UARTs the GPS may use and which GPIOs can never carry a
+sensor signal (strapping pins, flash and PSRAM pins, USB, the UART0 host
+link), each with its reason. `boards.pin_errors()` checks an assignment
+against those rules plus the board's `reserved` list and returns every
+problem it finds. Manifests that break a rule fail `tools/check_boards.py`
+and the build.
+
+Strapping pins are blocked outright, including the ones that are safe with a
+pull-up, so that no allowed assignment can stop a board from booting or
+flashing.
 
 ## Adding a board
 
-1. Create `targets/<id>.json`.
+1. Create `targets/<id>.json`. If the chip is new, add `chips/<chip>.json` from the vendor's GPIO documentation first.
 2. Add an environment to `platformio.ini`:
    ```ini
    [env:<id>]

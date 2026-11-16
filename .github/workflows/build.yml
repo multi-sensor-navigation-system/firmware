@@ -23,6 +23,8 @@ jobs:
           ./test_wire
       - name: Board manifests
         run: python3 tools/check_boards.py
+      - name: Pin rules
+        run: python3 tools/test_pin_rules.py
 
   build:
     runs-on: ubuntu-latest
