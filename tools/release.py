@@ -123,6 +123,9 @@ def main() -> int:
             "sha256": hashlib.sha256(image.read_bytes()).hexdigest(),
             "size": image.stat().st_size,
             "offset": "0x0",
+            # What a host needs to offer a pin choice and explain a refusal.
+            "pins": board["pins"],
+            "pin_rules": boards.pin_rules(board),
         }
         print(f"  {image.name}  {manifest['boards'][board['id']]['sha256'][:16]}…")
 

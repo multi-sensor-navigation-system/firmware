@@ -94,10 +94,35 @@ def load_all() -> list[dict]:
     return [load(p.stem) for p in sorted(BOARDS_DIR.glob("*.json"))]
 
 
+def pin_masks(chip: dict, reserved=None) -> tuple[int, int]:
+    """(out_mask, in_mask) for the firmware's own check: bit n set means
+    GPIO n may drive a signal / may read one. Mirrors pin_errors()."""
+    usable = {g for g in chip["gpio"] if str(g) not in chip["blocked"] and str(g) not in (reserved or {})}
+    if any(g > 63 for g in usable):
+        raise BoardError(f"{chip['chip']}: GPIO numbers above 63 do not fit the pin mask")
+    in_mask = sum(1 << g for g in usable)
+    out_mask = sum(1 << g for g in usable - set(chip["input_only"]))
+    return out_mask, in_mask
+
+
+def pin_rules(board: dict) -> dict:
+    """The chip's rules with this board's reserved pins folded in: what a
+    host needs to validate a user's pin choice and give the reason."""
+    chip = load_chip(board["chip"])
+    return {
+        "gpio": chip["gpio"],
+        "input_only": chip["input_only"],
+        "blocked": {**chip["blocked"], **{g: f"reserved on this board: {why}" for g, why in board.get("reserved", {}).items()}},
+    }
+
+
 def defines(board: dict) -> dict:
     """C preprocessor definitions that config.h and version.h pick up."""
     pins = board["pins"]
+    out_mask, in_mask = pin_masks(load_chip(board["chip"]), board.get("reserved"))
     return {
+        "MSNS_PIN_MASK_OUT": f"{out_mask:#x}ULL",
+        "MSNS_PIN_MASK_IN": f"{in_mask:#x}ULL",
         "MSNS_BOARD_ID": board["id"],
         "PIN_SDA": pins["sda"],
         "PIN_SCL": pins["scl"],

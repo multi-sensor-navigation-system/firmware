@@ -11,7 +11,7 @@ board_id = env.GetProjectOption("custom_board")  # noqa: F821
 board = boards.load(board_id)
 
 for name, value in boards.defines(board).items():
-    if isinstance(value, str):
+    if name == "MSNS_BOARD_ID":  # the only string; the rest are numeric literals
         value = env.StringifyMacro(value)  # noqa: F821
     env.Append(CPPDEFINES=[(name, value)])  # noqa: F821
 

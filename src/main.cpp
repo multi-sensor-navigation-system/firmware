@@ -8,6 +8,7 @@
 #include <TinyGPSPlus.h>
 
 #include "config.h"
+#include "device_config.h"
 #include "esp_task_wdt.h"
 #include "sensor_row.h"
 #include "transport.h"
@@ -52,10 +53,14 @@ bool init_sensors();
 void setup() {
     transport_begin();
 
-    Wire.begin(PIN_SDA, PIN_SCL);
+    // This board's own pins if it has any stored, else the manifest defaults.
+    const PinConfig pins = device_pins_load();
+    transport_set_pins(pins, device_pins_stored());
+
+    Wire.begin(pins.sda, pins.scl);
     Wire.setClock(I2C_FREQ_HZ);
 
-    gpsSerial.begin(GPS_BAUD, SERIAL_8N1, PIN_GPS_RX, PIN_GPS_TX);
+    gpsSerial.begin(GPS_BAUD, SERIAL_8N1, pins.gps_rx, pins.gps_tx);
 
     if (!init_sensors()) {
         transport_log("WARN: some sensors missing — logging available sensors only.");
@@ -329,6 +334,9 @@ void task_serial(void* pv) {
         while (rb_pop(&ring, row)) {
             transport_sample(row);
         }
+
+        // Commands from the host (pin changes).
+        transport_poll();
 
         // Heartbeat once per second: reports ring buffer drops (the serial
         // output not keeping up with the sensor rate) and, on the binary
