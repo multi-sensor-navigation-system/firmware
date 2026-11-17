@@ -50,6 +50,30 @@ def main() -> int:
         chip = boards.load_chip(board["chip"])
         assert boards.pin_errors(board["pins"], board["gps_uart"], chip, board.get("reserved")) == [], board["id"]
 
+    # The masks compiled into the firmware allow exactly what pin_errors allows.
+    for board in boards.load_all():
+        chip = boards.load_chip(board["chip"])
+        reserved = board.get("reserved")
+        out_mask, in_mask = boards.pin_masks(chip, reserved)
+        assert out_mask & ~in_mask == 0, board["id"]
+        free = [g for g in range(64) if (out_mask >> g) & 1]
+        for gpio in range(64):
+            a, b, c = [g for g in free if g != gpio][:3]  # three other pins known to be fine
+            as_output = {"sda": gpio, "scl": a, "gps_rx": b, "gps_tx": c}
+            as_input = {"sda": a, "scl": b, "gps_rx": gpio, "gps_tx": c}
+            uart = board["gps_uart"]
+            assert (boards.pin_errors(as_output, uart, chip, reserved) == []) == bool((out_mask >> gpio) & 1), (board["id"], gpio)
+            assert (boards.pin_errors(as_input, uart, chip, reserved) == []) == bool((in_mask >> gpio) & 1), (board["id"], gpio)
+
+    # config.h's fallback masks (builds made outside PlatformIO) are the esp32dev ones.
+    config = (boards.ROOT / "include" / "config.h").read_text()
+    esp32dev = boards.defines(boards.load("esp32dev"))
+    for name in ("MSNS_PIN_MASK_OUT", "MSNS_PIN_MASK_IN"):
+        assert f"#define {name} {esp32dev[name]}" in config, name
+
+    rules = boards.pin_rules(boards.load("esp32-s3-devkitc-1"))
+    assert "35" in rules["blocked"] and "19" in rules["blocked"]
+
     print("pin rules OK")
     return 0
 

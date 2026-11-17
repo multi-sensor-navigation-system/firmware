@@ -1,4 +1,5 @@
 #pragma once
+#include "pin_config.h"
 #include "sensor_row.h"
 #include <stdint.h>
 
@@ -15,9 +16,18 @@ void transport_begin();
 // Free-text message (sensor init results, warnings).
 void transport_log(const char *msg);
 
-// Identify the firmware. `sensors` is a comma-separated list of the
-// sensors that initialised, e.g. "imu,mag,baro,gps".
+// Tell the transport which pins are in use, for the hello. Call once,
+// before the first transport_hello().
+void transport_set_pins(const PinConfig &pins, bool stored);
+
+// Identify the firmware and this device. `sensors` is a comma-separated
+// list of the sensors that initialised, e.g. "imu,mag,baro,gps".
 void transport_hello(const char *sensors);
+
+// Read and act on commands from the host (binary transport only). A pin
+// change that is accepted is stored, acknowledged, and applied by
+// restarting, so this call may not return.
+void transport_poll();
 
 void transport_sample(const SensorRow &row);
 

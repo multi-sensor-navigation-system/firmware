@@ -13,6 +13,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Host output moved out of `main.cpp` into `src/transport.cpp`.
 
 ### Added
+- **Per-device pin settings.** Each physical board can store its own sensor
+  pins: the host sends `SET_PINS` / `RESET_PINS`, the firmware checks the
+  request against the pin rules, stores it, answers with `ACK` and restarts.
+  `HELLO` now carries the chip's unique `id`, the `pins` in use and
+  `pin_src`. See `docs/wire-protocol.md`.
+- **Pin rules** (`chips/<chip>.json`): which GPIOs may carry a sensor signal
+  on each chip, with the reason for every blocked pin. Enforced on board
+  manifests, compiled into the firmware as allowed-pin masks, and published
+  per board in the release `manifest.json`.
 - **Web flasher** (`web/index.html`, built by `tools/release.py --site`):
   flash any released board from Chrome or Edge with no install. Deployed to
   GitHub Pages by the release workflow when `PAGES_DEPLOY=true`.

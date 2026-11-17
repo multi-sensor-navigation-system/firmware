@@ -1,11 +1,19 @@
 #include <Arduino.h>
 
 #include "config.h"
+#include "device_config.h"
 #include "transport.h"
 #include "version.h"
 #include "wire.h"
 
 static uint32_t s_samples_sent = 0;
+static PinConfig s_pins = {PIN_SDA, PIN_SCL, PIN_GPS_RX, PIN_GPS_TX};
+static bool s_pins_stored = false;
+
+void transport_set_pins(const PinConfig &pins, bool stored) {
+    s_pins = pins;
+    s_pins_stored = stored;
+}
 
 void transport_begin() {
     // A larger TX buffer lets task_serial queue a burst of frames without
@@ -21,10 +29,14 @@ void transport_begin() {
 }
 
 static int format_hello(char *buf, size_t size, const char *sensors) {
+    // `pins` is sda,scl,gps_rx,gps_tx (the PinSignal order).
     return snprintf(buf, size,
-                    "board=%s;fw=%s;git=%s;imu_hz=%d;mag_hz=%d;baro_hz=%d;gps_hz=%d;sensors=%s",
+                    "board=%s;fw=%s;git=%s;imu_hz=%d;mag_hz=%d;baro_hz=%d;gps_hz=%d;sensors=%s;"
+                    "id=%s;pins=%u,%u,%u,%u;pin_src=%s",
                     MSNS_BOARD_ID, MSNS_FW_VERSION, MSNS_GIT_SHA,
-                    IMU_HZ, MAG_HZ, BARO_HZ, GPS_HZ, sensors);
+                    IMU_HZ, MAG_HZ, BARO_HZ, GPS_HZ, sensors,
+                    device_id(), s_pins.sda, s_pins.scl, s_pins.gps_rx, s_pins.gps_tx,
+                    s_pins_stored ? "stored" : "default");
 }
 
 #if MSNS_WIRE_CSV
@@ -45,7 +57,7 @@ void transport_log(const char *msg) {
 }
 
 void transport_hello(const char *sensors) {
-    char text[160];
+    char text[WIRE_MAX_BODY];
     format_hello(text, sizeof(text), sensors);
     Serial.print("# hello ");
     Serial.println(text);
@@ -90,6 +102,9 @@ void transport_heartbeat(uint32_t rb_drops, const char *sensors) {
     // Drops indicate the serial output can't keep up with the sensor rate.
     if (rb_drops > 0) Serial.printf("# rb_drops=%u\n", rb_drops);
 }
+
+// The CSV build is a read-only debug stream; it takes no commands.
+void transport_poll() {}
 
 #else
 // ══════════════════════════════════════════════════════
@@ -146,5 +161,48 @@ void transport_heartbeat(uint32_t rb_drops, const char *sensors) {
     // Repeat the hello every other heartbeat so a host that attaches
     // mid-stream can identify the firmware without resetting the board.
     if (++s_heartbeats % 2 == 0) transport_hello(sensors);
+}
+
+static void send_ack(uint8_t cmd, PinStatus status, uint8_t signal) {
+    WireAck ack = {cmd, (uint8_t)status, signal};
+    send_frame(WIRE_ACK, &ack, sizeof(ack));
+}
+
+// Pins are read once at boot, so an accepted change is applied by
+// restarting. The acknowledgement is flushed first so the host sees it.
+static void restart_to_apply() {
+    Serial.flush();
+    delay(50);
+    ESP.restart();
+}
+
+static void handle_command(const WireReceiver &rx) {
+    uint8_t signal = PIN_SIG_NONE;
+    PinStatus status;
+    switch (rx.type) {
+    case WIRE_CMD_SET_PINS:
+        if (rx.body_len != PIN_SIG_COUNT) {
+            status = PIN_ERR_LENGTH;
+        } else {
+            PinConfig pins = {rx.body[0], rx.body[1], rx.body[2], rx.body[3]};
+            status = device_pins_save(pins, &signal);
+        }
+        break;
+    case WIRE_CMD_RESET_PINS:
+        status = rx.body_len == 0 ? device_pins_clear() : PIN_ERR_LENGTH;
+        break;
+    default:
+        status = PIN_ERR_UNKNOWN;
+        break;
+    }
+    send_ack(rx.type, status, signal);
+    if (status == PIN_OK) restart_to_apply();
+}
+
+void transport_poll() {
+    static WireReceiver rx;
+    while (Serial.available()) {
+        if (rx.feed((uint8_t)Serial.read())) handle_command(rx);
+    }
 }
 #endif

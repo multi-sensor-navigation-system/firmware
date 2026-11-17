@@ -1,6 +1,8 @@
 # Wire protocol v1
 
-How the firmware talks to the host over UART0 (921600 baud, 8N1).
+How the firmware and the host talk over UART0 (921600 baud, 8N1). Most
+traffic is device to host; the host can send a small set of commands using
+the same framing.
 
 ## Why not CSV
 
@@ -37,6 +39,14 @@ frame = COBS( type:u8 | body | crc16:u16le )  0x00
 | `0x02` | `SAMPLE` | 98-byte packed struct, below |
 | `0x03` | `STATUS` | `rb_drops:u32`, `samples_sent:u32` |
 | `0x04` | `LOG`    | ASCII text (sensor init results, warnings) |
+| `0x05` | `ACK`    | `cmd:u8`, `status:u8`, `signal:u8` — the answer to a command |
+
+Host to device:
+
+| Type | Name | Body |
+|---|---|---|
+| `0x10` | `SET_PINS`   | `sda:u8`, `scl:u8`, `gps_rx:u8`, `gps_tx:u8` (GPIO numbers) |
+| `0x11` | `RESET_PINS` | empty |
 
 ### HELLO
 
@@ -51,6 +61,9 @@ Keys:
 | `git` | `abc1234` | Git revision of the build |
 | `imu_hz`, `mag_hz`, `baro_hz`, `gps_hz` | `500` | Configured sample rates |
 | `sensors` | `imu,mag,baro,gps` | Sensors that initialised |
+| `id` | `7cdfa1e2b3c4` | Unique id of this chip: its factory MAC address, 12 hex digits |
+| `pins` | `21,22,16,17` | GPIOs in use, in the order `sda,scl,gps_rx,gps_tx` |
+| `pin_src` | `default` or `stored` | Whether the pins are the board defaults or were set on this device |
 
 Hosts must ignore keys they do not know, and must refuse a `proto` they do
 not support.
@@ -84,6 +97,40 @@ Sent once per second. `rb_drops` counts rows the sensor task dropped because
 the ring buffer was full (the UART could not keep up). `samples_sent` is the
 total number of `SAMPLE` frames written.
 
+## Commands
+
+Each physical board can keep its own pin assignment. The pins are stored in
+the chip's non-volatile storage, survive a firmware update, and are lost
+only by a full flash erase.
+
+- `SET_PINS` asks the device to use the given GPIOs. The device checks them
+  against the pin rules built into its firmware (`chips/<chip>.json` plus
+  the board's reserved pins). It never stores an assignment that fails.
+- `RESET_PINS` forgets the stored pins; the board defaults apply again.
+- The device answers every command with one `ACK`. On `status = 0` it then
+  restarts, and the next `HELLO` shows the pins now in use.
+- Frames longer than 16 body bytes, and frames whose CRC fails, are dropped
+  without an answer. A host should retry if no `ACK` arrives within 1 s.
+- The CSV debug build takes no commands.
+
+`ACK.status`:
+
+| Value | Meaning |
+|---|---|
+| 0 | Done. The device restarts to apply it |
+| 1 | The command body has the wrong length |
+| 2 | A GPIO does not exist on this chip, or is blocked or reserved |
+| 3 | A signal that must be driven was put on an input-only GPIO |
+| 4 | Two signals were put on the same GPIO |
+| 5 | The setting could not be written |
+| 6 | Unknown command |
+
+`ACK.signal` names the first signal the status refers to (`0` sda, `1` scl,
+`2` gps_rx, `3` gps_tx), or `0xFF` if it refers to none.
+
+The UART0 pins are always blocked, so no pin assignment can cut the host
+link: a board with wrong pins still answers `RESET_PINS`.
+
 ## Versioning
 
 `proto` changes whenever an existing frame's layout changes. Adding a new
@@ -91,7 +138,9 @@ frame type or a new HELLO key does not change it.
 
 ## Reference implementation and tests
 
-- Encoder: `include/wire.h` (header-only, no Arduino dependencies).
-- Host tests: `tools/host/test_wire.cpp`, run in CI.
+- Encoder and command receiver: `include/wire.h`; pin check:
+  `include/pin_config.h` (both header-only, no Arduino dependencies).
+- Host tests: `tools/host/test_wire.cpp` and `tools/host/test_pins.cpp`,
+  run in CI.
 - `tools/host/wire_dump.cpp` emits the golden stream that the Python decoder
   in `data-pipeline` is tested against.

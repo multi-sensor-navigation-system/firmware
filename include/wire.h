@@ -24,6 +24,11 @@ enum WireType : uint8_t {
   WIRE_SAMPLE = 0x02, // WireSample
   WIRE_STATUS = 0x03, // WireStatus
   WIRE_LOG    = 0x04, // ASCII text, no NUL
+  WIRE_ACK    = 0x05, // WireAck: the answer to a command
+
+  // Host → device commands. Same framing as everything else.
+  WIRE_CMD_SET_PINS   = 0x10, // sda:u8 | scl:u8 | gps_rx:u8 | gps_tx:u8
+  WIRE_CMD_RESET_PINS = 0x11, // empty: forget the stored pins
 };
 
 #pragma pack(push, 1)
@@ -49,10 +54,17 @@ struct WireStatus {
   uint32_t rb_drops;     // rows dropped because the ring buffer was full
   uint32_t samples_sent; // total WIRE_SAMPLE frames written
 };
+
+struct WireAck {
+  uint8_t cmd;    // the command type being answered
+  uint8_t status; // PinStatus: 0 = done, the device restarts to apply it
+  uint8_t signal; // PinSignal the status refers to, 0xFF if none
+};
 #pragma pack(pop)
 
 static_assert(sizeof(WireSample) == 98, "WireSample layout is part of the wire protocol");
 static_assert(sizeof(WireStatus) == 8, "WireStatus layout is part of the wire protocol");
+static_assert(sizeof(WireAck) == 3, "WireAck layout is part of the wire protocol");
 
 #define WIRE_MAX_BODY 200
 // type + body + crc, plus COBS overhead (1 byte per 254) and the delimiter.
@@ -108,3 +120,71 @@ inline size_t wire_frame(uint8_t type, const uint8_t *body, size_t len, uint8_t 
   out[n++] = 0x00;
   return n;
 }
+
+// ── RECEIVING (host → device commands) ─────────────────
+
+// Inverse of wire_cobs_encode. Returns the decoded length, or -1 if the
+// input is malformed or does not fit in `cap`.
+inline int wire_cobs_decode(const uint8_t *in, size_t len, uint8_t *out, size_t cap) {
+  size_t r = 0, w = 0;
+  while (r < len) {
+    uint8_t code = in[r++];
+    if (code == 0)
+      return -1;
+    for (uint8_t k = 1; k < code; k++) {
+      if (r >= len || w >= cap || in[r] == 0)
+        return -1;
+      out[w++] = in[r++];
+    }
+    if (code != 0xFF && r < len) {
+      if (w >= cap)
+        return -1;
+      out[w++] = 0;
+    }
+  }
+  return (int)w;
+}
+
+// Commands are tiny; anything longer than this is not for us.
+#define WIRE_RX_MAX_BODY 16
+#define WIRE_RX_MAX_FRAME (WIRE_RX_MAX_BODY + 3 + 1)
+
+// Collects bytes up to each 0x00 delimiter and hands back one checked
+// command at a time. Oversized or corrupt frames are dropped whole.
+struct WireReceiver {
+  uint8_t buf[WIRE_RX_MAX_FRAME];
+  uint8_t len = 0;
+  bool overflow = false;
+  uint8_t body[WIRE_RX_MAX_BODY];
+  uint8_t body_len = 0;
+  uint8_t type = 0;
+
+  // Feed one received byte. Returns true when `type`, `body` and
+  // `body_len` hold a complete frame whose CRC is correct.
+  bool feed(uint8_t byte) {
+    if (byte != 0x00) {
+      if (len < sizeof(buf))
+        buf[len++] = byte;
+      else
+        overflow = true;
+      return false;
+    }
+    bool ok = false;
+    uint8_t raw[WIRE_RX_MAX_BODY + 3];
+    if (!overflow && len > 0) {
+      int n = wire_cobs_decode(buf, len, raw, sizeof(raw));
+      if (n >= 3) {
+        uint16_t crc = (uint16_t)(raw[n - 2] | (raw[n - 1] << 8));
+        if (crc == wire_crc16(raw, (size_t)n - 2)) {
+          type = raw[0];
+          body_len = (uint8_t)(n - 3);
+          memcpy(body, raw + 1, body_len);
+          ok = true;
+        }
+      }
+    }
+    len = 0;
+    overflow = false;
+    return ok;
+  }
+};

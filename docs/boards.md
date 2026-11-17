@@ -45,6 +45,11 @@ against those rules plus the board's `reserved` list and returns every
 problem it finds. Manifests that break a rule fail `tools/check_boards.py`
 and the build.
 
+The same rules are compiled into the firmware as two bit masks, so a pin
+change requested by the host (`SET_PINS`, see `docs/wire-protocol.md`) is
+checked on the device as well, and they are published per board in the
+release `manifest.json` (`pins`, `pin_rules`) for host tools.
+
 Strapping pins are blocked outright, including the ones that are safe with a
 pull-up, so that no allowed assignment can stop a board from booting or
 flashing.

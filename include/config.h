@@ -19,6 +19,15 @@
 #define GPS_UART_NUM 2
 #endif
 
+// Allowed-pin masks for user-chosen pins (bit n = GPIO n), generated from
+// chips/<chip>.json and the board manifest. See include/pin_config.h.
+#ifndef MSNS_PIN_MASK_OUT
+#define MSNS_PIN_MASK_OUT 0x30eef6010ULL
+#endif
+#ifndef MSNS_PIN_MASK_IN
+#define MSNS_PIN_MASK_IN 0xff0eef6010ULL
+#endif
+
 // ── I²C ────────────────────────────────────────────────
 #define I2C_FREQ_HZ 400000
 
